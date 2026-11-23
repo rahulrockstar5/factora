@@ -1,0 +1,753 @@
+<title>Factora</title>
+<meta name="description" content="Paste a social media link and get a 0 to 100 score for how likely the news is to be real.">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<style>
+/* Layout concept: left-aligned hero with an idle radar on the right, one large link box under it,
+   then a scan stage (radar canvas + step list) that is replaced by the score and the source cross-check. */
+:root{
+  --bg:#F4F6FB; --bg-img:none; --panel:#FFFFFF; --solid:#FFFFFF; --fg:#10142B; --dim:#555C77; --line:#D8DDEC;
+  --accent:#3946D8; --accent-2:#0A8FA8; --accent-3:#6B7BFF; --on-accent:#FFFFFF;
+  --good:#13804A; --warn:#9A5F08; --bad:#C42B38;
+  --good-bg:#E2F4EA; --warn-bg:#FBEFD9; --bad-bg:#FBE5E8;
+  --glow:rgba(57,70,216,.2); --shadow:0 24px 60px -32px rgba(40,50,120,.5); --blob-o:.16;
+  --display:'Space Grotesk',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --body:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-skin]){
+    --bg:#090D19; --panel:#121829; --solid:#121829; --fg:#E7EBF8; --dim:#9AA3BF; --line:#232B45;
+    --accent:#6C8CFF; --accent-2:#22D3EE; --accent-3:#22D3EE; --on-accent:#08101F;
+    --good:#3DDC97; --warn:#F5B94A; --bad:#FF6B7A;
+    --good-bg:rgba(61,220,151,.14); --warn-bg:rgba(245,185,74,.14); --bad-bg:rgba(255,107,122,.14);
+    --glow:rgba(108,140,255,.28); --shadow:0 24px 60px -28px rgba(0,0,0,.75); --blob-o:.22; color-scheme:dark;
+  }
+}
+:root[data-skin="dark"]{
+  --bg:#090D19; --panel:#121829; --solid:#121829; --fg:#E7EBF8; --dim:#9AA3BF; --line:#232B45;
+  --accent:#6C8CFF; --accent-2:#22D3EE; --accent-3:#22D3EE; --on-accent:#08101F;
+  --good:#3DDC97; --warn:#F5B94A; --bad:#FF6B7A;
+  --good-bg:rgba(61,220,151,.14); --warn-bg:rgba(245,185,74,.14); --bad-bg:rgba(255,107,122,.14);
+  --glow:rgba(108,140,255,.28); --shadow:0 24px 60px -28px rgba(0,0,0,.75); --blob-o:.22; color-scheme:dark;
+}
+:root[data-skin="colorful"]{
+  --bg:#1B0A3C;
+  --bg-img:radial-gradient(60% 50% at 6% 0%,rgba(255,79,163,.5),transparent 70%),radial-gradient(50% 45% at 96% 6%,rgba(92,225,230,.38),transparent 70%),radial-gradient(60% 50% at 50% 106%,rgba(255,200,87,.34),transparent 70%);
+  --panel:rgba(255,255,255,.1); --solid:#2B1560; --fg:#FFF6FD; --dim:#D3BEEC; --line:rgba(255,255,255,.24);
+  --accent:#FF4FA3; --accent-2:#5CE1E6; --accent-3:#FFC857; --on-accent:#2B0A3D;
+  --good:#5CF2B0; --warn:#FFC857; --bad:#FF7C97;
+  --good-bg:rgba(92,242,176,.16); --warn-bg:rgba(255,200,87,.16); --bad-bg:rgba(255,124,151,.18);
+  --glow:rgba(255,79,163,.38); --shadow:0 26px 70px -28px rgba(255,79,163,.6); --blob-o:.4; color-scheme:dark;
+}
+
+*{box-sizing:border-box}
+html{color-scheme:light}
+html{scroll-behavior:smooth}
+body{
+  background-color:var(--bg); background-image:var(--bg-img); background-attachment:fixed; color:var(--fg);
+  font:16px/1.55 var(--body); min-height:100%; position:relative; overflow-x:hidden;
+  padding-block:20px 64px;
+  padding-left:max(16px,env(safe-area-inset-left,0px)); padding-right:max(16px,env(safe-area-inset-right,0px));
+  transition:background-color .3s;
+}
+.wrap{max-width:1040px;margin:0 auto;position:relative;z-index:1}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+:focus-visible{outline:2px solid var(--accent-2);outline-offset:2px}
+button{font-family:inherit}
+[hidden]{display:none!important}
+
+.aurora{position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0}
+.aurora i{position:absolute;border-radius:50%;filter:blur(80px);opacity:var(--blob-o)}
+.aurora i:nth-child(1){width:46vmax;height:46vmax;left:-14vmax;top:-18vmax;background:var(--accent);animation:drift1 22s ease-in-out infinite alternate}
+.aurora i:nth-child(2){width:38vmax;height:38vmax;right:-12vmax;top:10vmax;background:var(--accent-2);animation:drift2 26s ease-in-out infinite alternate}
+.aurora i:nth-child(3){width:34vmax;height:34vmax;left:30vw;bottom:-20vmax;background:var(--accent-3);animation:drift1 30s ease-in-out infinite alternate-reverse}
+@keyframes drift1{to{transform:translate(6vmax,5vmax) scale(1.08)}}
+@keyframes drift2{to{transform:translate(-7vmax,4vmax) scale(.94)}}
+
+/* header */
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px;font:700 1.2rem var(--display);letter-spacing:-.01em}
+.mark{width:34px;height:34px;flex:none}
+.skins{display:flex;gap:2px;padding:3px;border:1px solid var(--line);border-radius:999px;background:var(--panel);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.skins button{display:inline-flex;align-items:center;gap:6px;border:0;background:transparent;color:var(--dim);font:500 .85rem var(--body);padding:8px 13px;border-radius:999px;cursor:pointer;transition:background .2s,color .2s}
+.skins button svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.skins button:hover{color:var(--fg)}
+.skins button[aria-checked="true"]{background:linear-gradient(135deg,var(--accent),var(--accent-3));color:var(--on-accent);font-weight:600}
+
+/* hero */
+.hero{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,.7fr);gap:32px;align-items:center;padding-block:clamp(34px,7vw,76px) 28px}
+.eyebrow{font:500 .75rem var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--accent-2);margin:0 0 14px}
+h1{font:700 clamp(2.1rem,5.4vw,3.8rem)/1.04 var(--display);letter-spacing:-.025em;margin:0 0 16px;text-wrap:balance}
+h1 em{font-style:normal;background:linear-gradient(120deg,var(--accent),var(--accent-3));-webkit-background-clip:text;background-clip:text;color:transparent}
+.lede{max-width:56ch;margin:0;color:var(--dim);font-size:1.05rem}
+.orb{position:relative;width:300px;height:300px;justify-self:end}
+.orb i{position:absolute;inset:0;border-radius:50%;border:1px solid var(--line)}
+.orb .r2{inset:17%}.orb .r3{inset:34%}
+.orb .sweep{border:0;background:conic-gradient(from 0deg,transparent 0 292deg,var(--accent-2) 360deg);opacity:.38;animation:spin 5s linear infinite}
+.orb .dots{position:absolute;inset:0;animation:spin 70s linear infinite}
+.orb .dots u{position:absolute;left:50%;top:50%;width:11px;height:11px;margin:-5.5px;border-radius:50%;background:var(--accent);box-shadow:0 0 14px var(--glow);transform:rotate(calc(var(--k)*72deg)) translateY(-138px)}
+.orb b{position:absolute;inset:44%;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent-3));box-shadow:0 0 34px 8px var(--glow)}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (max-width:900px){.hero{grid-template-columns:1fr}.orb{display:none}}
+
+/* link box */
+.finder{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px;border:1px solid var(--line);border-radius:22px;background:var(--panel);box-shadow:var(--shadow);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);transition:box-shadow .25s,border-color .25s}
+.finder:focus-within{border-color:var(--accent);box-shadow:0 0 0 4px var(--glow),var(--shadow)}
+.finder .ico{flex:none;width:44px;height:44px;display:grid;place-items:center;color:var(--accent)}
+.finder .ico svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.finder input{flex:1 1 220px;min-width:0;border:0;background:transparent;color:var(--fg);font:500 1rem var(--mono);padding:14px 6px;outline:none}
+.finder input::placeholder{color:var(--dim);opacity:.8}
+.finder.scanning::after{content:"";position:absolute;left:22px;right:22px;bottom:-1px;height:2px;background:linear-gradient(90deg,transparent,var(--accent-2),transparent);background-size:40% 100%;background-repeat:no-repeat;animation:beam 1.2s linear infinite}
+@keyframes beam{from{background-position:-40% 0}to{background-position:140% 0}}
+.go{flex:0 0 auto;display:inline-flex;align-items:center;gap:9px;border:0;border-radius:14px;padding:14px 24px;font:600 1rem var(--body);color:var(--on-accent);background:linear-gradient(135deg,var(--accent),var(--accent-3));cursor:pointer;transition:transform .15s,filter .15s}
+.go svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.go:hover{filter:brightness(1.08);transform:translateY(-1px)}
+.go:active{transform:none}
+.go[disabled]{opacity:.7;cursor:progress;transform:none}
+@media (max-width:560px){.go{flex:1 1 100%;justify-content:center}}
+.under{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;margin-top:14px}
+.linkish{border:0;background:none;color:var(--accent-2);font:500 .9rem var(--body);cursor:pointer;padding:4px 0;text-decoration:underline;text-underline-offset:3px}
+.examples{display:flex;flex-wrap:wrap;align-items:center;gap:8px;color:var(--dim);font-size:.88rem}
+.chip-btn{border:1px solid var(--line);background:var(--panel);color:var(--fg);font:500 .82rem var(--body);padding:6px 12px;border-radius:999px;cursor:pointer;transition:border-color .2s,transform .15s}
+.chip-btn:hover{border-color:var(--accent);transform:translateY(-1px)}
+.ta{width:100%;min-height:96px;resize:vertical;margin-top:12px;border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--fg);font:400 .95rem/1.5 var(--body);padding:12px 14px}
+.ta:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--glow)}
+.msg{min-height:1.4em;margin:10px 4px 0;color:var(--bad);font-size:.9rem}
+.msg.shake{animation:shake .35s}
+@keyframes shake{25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
+
+/* idle */
+.idle{margin-top:34px;display:grid;gap:26px}
+.h-sm{font:600 .78rem var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin:0 0 12px}
+.how{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;counter-reset:step}
+.how li{counter-increment:step;position:relative;padding:18px 18px 18px 58px;border:1px solid var(--line);border-radius:16px;background:var(--panel);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.how li::before{content:counter(step);position:absolute;left:16px;top:17px;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font:700 .85rem var(--display);color:var(--on-accent);background:linear-gradient(135deg,var(--accent),var(--accent-3))}
+.how b{display:block;font:600 1rem var(--display);margin-bottom:3px}
+.how span{color:var(--dim);font-size:.92rem}
+.cats{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.cats li{display:flex;gap:11px;align-items:flex-start;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--panel);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.cats svg,.src-ico svg{width:22px;height:22px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.cats svg{color:var(--accent-2);margin-top:2px}
+.cats b{display:block;font:600 .93rem var(--body)}
+.cats span{display:block;color:var(--dim);font-size:.82rem;line-height:1.4}
+
+/* shared panel */
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:20px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+
+/* scan */
+.scan{margin-top:30px;padding:clamp(16px,3vw,30px)}
+.scan-grid{display:grid;grid-template-columns:minmax(0,440px) minmax(0,1fr);gap:clamp(18px,4vw,44px);align-items:center}
+@media (max-width:820px){.scan-grid{grid-template-columns:1fr}}
+.stage{aspect-ratio:1;width:100%;max-width:440px;margin-inline:auto}
+.stage canvas{display:block;width:100%;height:100%}
+.scan-url{font:400 .85rem/1.45 var(--mono);color:var(--fg);word-break:break-all;margin:0 0 18px;padding:10px 12px;border-radius:12px;border:1px dashed var(--line);position:relative;overflow:hidden}
+.scan-url::after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent 30%,var(--glow) 50%,transparent 70%);background-size:220% 100%;animation:shine 1.8s linear infinite}
+@keyframes shine{from{background-position:120% 0}to{background-position:-120% 0}}
+.steps{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.step{display:flex;gap:12px;align-items:flex-start;padding:8px 10px;border-radius:12px;color:var(--dim);transition:background .25s,color .25s}
+.step b{display:block;font:600 .95rem var(--body)}
+.step span.s{display:block;font-size:.8rem;line-height:1.35}
+.dot{flex:none;width:20px;height:20px;margin-top:2px;border-radius:50%;border:2px solid var(--line);position:relative}
+.step[data-s="active"]{background:var(--glow);color:var(--fg)}
+.step[data-s="active"] .dot{border-color:var(--line);border-top-color:var(--accent);animation:spin .8s linear infinite}
+.step[data-s="done"]{color:var(--fg)}
+.step[data-s="done"] .dot{border-color:var(--good);background:var(--good)}
+.step[data-s="done"] .dot::after{content:"";position:absolute;left:5px;top:1.5px;width:5px;height:9px;border:solid var(--bg);border-width:0 2px 2px 0;transform:rotate(45deg)}
+.bar{height:6px;border-radius:99px;background:var(--line);overflow:hidden;margin:16px 0 10px}
+.bar i{display:block;height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,var(--accent),var(--accent-3));transition:width .5s}
+.scan-note{margin:0;color:var(--dim);font-size:.85rem}
+.scan-foot{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
+
+/* result */
+.result{margin-top:30px;display:grid;gap:16px}
+.result[data-tone="good"]{--vc:var(--good);--vbg:var(--good-bg)}
+.result[data-tone="warn"]{--vc:var(--warn);--vbg:var(--warn-bg)}
+.result[data-tone="bad"]{--vc:var(--bad);--vbg:var(--bad-bg)}
+.notice{margin:0;padding:12px 16px;border-radius:14px;border:1px solid var(--line);background:var(--warn-bg);color:var(--fg);font-size:.9rem}
+.verdict{display:flex;gap:clamp(20px,4vw,40px);align-items:center;flex-wrap:wrap;padding:clamp(20px,3vw,32px)}
+.gauge{position:relative;width:200px;height:200px;flex:none}
+.gauge svg{width:100%;height:100%;transform:rotate(-90deg)}
+.gauge circle{fill:none;stroke-width:14}
+.g-track{stroke:var(--line)}
+.g-bar{stroke:var(--vc);stroke-linecap:round;transition:stroke-dashoffset 1.5s cubic-bezier(.2,.8,.2,1)}
+.g-num{position:absolute;inset:0;display:grid;place-content:center;text-align:center}
+.g-num b{font:700 3.7rem/1 var(--display);font-variant-numeric:tabular-nums;letter-spacing:-.03em}
+.g-num span{font-size:.8rem;color:var(--dim);margin-top:4px}
+.v-text{flex:1 1 320px;min-width:0}
+.badges{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.badge{font:600 .78rem var(--body);padding:5px 12px;border-radius:999px;border:1px solid var(--line);color:var(--dim)}
+.badge.v{background:var(--vbg);color:var(--vc);border-color:transparent;font-size:.85rem}
+.v-text h2{font:700 clamp(1.4rem,3vw,1.9rem)/1.2 var(--display);letter-spacing:-.015em;margin:0 0 8px;text-wrap:balance}
+.v-text p{margin:0 0 14px;color:var(--dim);max-width:62ch}
+.split{display:flex;height:10px;border-radius:99px;overflow:hidden;background:var(--line)}
+.split i{display:block;height:100%;transition:width 1.2s cubic-bezier(.2,.8,.2,1)}
+.split .real{background:var(--good)}.split .fake{background:var(--bad)}
+.legend{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:8px;font:500 .85rem var(--body);font-variant-numeric:tabular-nums}
+.legend .lr{color:var(--good)}.legend .lf{color:var(--bad)}
+.meta{margin-top:14px;font:400 .8rem var(--mono);color:var(--dim);word-break:break-word}
+.cols{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:16px}
+@media (max-width:860px){.cols{grid-template-columns:1fr}}
+.box{padding:clamp(16px,2.4vw,24px);min-width:0}
+.box h3{font:600 .78rem var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin:0 0 14px}
+.box h3 + h3,.flags + h3{margin-top:22px}
+.list{list-style:none;margin:0;padding:0;display:grid;gap:12px}
+.src{display:flex;gap:12px;padding:12px;border-radius:14px;border:1px solid var(--line);background:var(--solid)}
+.src-ico{flex:none;width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:var(--line);color:var(--fg)}
+.src[data-st="supports"] .src-ico{background:var(--good-bg);color:var(--good)}
+.src[data-st="contradicts"] .src-ico{background:var(--bad-bg);color:var(--bad)}
+.src-body{min-width:0;flex:1}
+.src-head{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+.src-head b{font:600 .95rem var(--body)}
+.pill{font:600 .72rem var(--body);padding:3px 10px;border-radius:999px;border:1px solid var(--line);color:var(--dim);white-space:nowrap}
+.src[data-st="supports"] .pill{background:var(--good-bg);color:var(--good);border-color:transparent}
+.src[data-st="contradicts"] .pill{background:var(--bad-bg);color:var(--bad);border-color:transparent}
+.src-eg{margin:1px 0 6px;font-size:.78rem;color:var(--dim)}
+.src-note{margin:0;font-size:.9rem}
+.flags{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.flags li{display:flex;gap:10px;font-size:.92rem;align-items:flex-start}
+.flags li::before{content:"i";flex:none;width:20px;height:20px;margin-top:1px;border-radius:50%;display:grid;place-items:center;font:700 .75rem var(--display);background:var(--line);color:var(--fg)}
+.flags li[data-t="good"]::before{content:"\2713";background:var(--good-bg);color:var(--good)}
+.flags li[data-t="warn"]::before{content:"!";background:var(--warn-bg);color:var(--warn)}
+.flags li[data-t="bad"]::before{content:"\2715";background:var(--bad-bg);color:var(--bad)}
+.claims{margin:0;padding-left:1.1em;display:grid;gap:8px;font-size:.92rem}
+.muted{color:var(--dim);font-size:.9rem;margin:0}
+.next{margin:0;padding-left:1.2em;display:grid;gap:8px;font-size:.95rem}
+.disclosure{margin:0;color:var(--dim);font-size:.82rem;max-width:90ch}
+.cta{margin-top:16px;border:0;border-radius:12px;padding:11px 18px;font:600 .92rem var(--body);color:var(--on-accent);background:linear-gradient(135deg,var(--accent),var(--accent-3));cursor:pointer;transition:filter .15s}
+.cta:hover{filter:brightness(1.08)}
+.again{justify-self:start}
+.again button{border:1px solid var(--line);background:var(--panel);color:var(--fg);font:600 .95rem var(--body);padding:12px 20px;border-radius:14px;cursor:pointer;transition:border-color .2s}
+.again button:hover{border-color:var(--accent)}
+footer{margin-top:44px;color:var(--dim);font-size:.8rem}
+
+@media (max-width:520px){.skins button span{display:none}.skins button{padding:8px 11px}.gauge{width:170px;height:170px}.g-num b{font-size:3.1rem}}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}
+}
+</style>
+
+<div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
+        <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--accent)"/><stop offset="1" style="stop-color:var(--accent-3)"/></linearGradient></defs>
+        <rect width="32" height="32" rx="9" fill="url(#lg)"/>
+        <circle cx="15" cy="15" r="6.2" fill="none" stroke="var(--on-accent)" stroke-width="2.4"/>
+        <path d="M19.8 19.8 25 25" stroke="var(--on-accent)" stroke-width="2.6" stroke-linecap="round"/>
+        <path d="M12.4 15.2l2 2 3.4-3.8" fill="none" stroke="var(--on-accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Factora
+    </div>
+    <div class="skins" role="radiogroup" aria-label="Theme">
+      <button type="button" role="radio" aria-checked="false" data-skin-btn="dark" title="Dark theme">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg><span>Dark</span>
+      </button>
+      <button type="button" role="radio" aria-checked="false" data-skin-btn="light" title="Light theme">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6"/></svg><span>Light</span>
+      </button>
+      <button type="button" role="radio" aria-checked="false" data-skin-btn="colorful" title="Colorful theme">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg><span>Colorful</span>
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Social post link checker</p>
+        <h1>Is that post real? Paste the link and <em>find out.</em></h1>
+        <p class="lede">Factora reads the post, picks out the claim and compares it with what official accounts, government bodies, news agencies and fact-checkers have said. You get a score out of 100.</p>
+      </div>
+      <div class="orb" aria-hidden="true">
+        <i></i><i class="r2"></i><i class="r3"></i><i class="sweep"></i>
+        <span class="dots"><u style="--k:0"></u><u style="--k:1"></u><u style="--k:2"></u><u style="--k:3"></u><u style="--k:4"></u></span>
+        <b></b>
+      </div>
+    </section>
+
+    <form id="checkForm" novalidate>
+      <div class="finder" id="finder">
+        <span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1"/></svg></span>
+        <label class="sr" for="urlInput">Social media post link</label>
+        <input id="urlInput" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste a link from X, Facebook, Instagram, YouTube, Telegram or a news site">
+        <button class="go" id="go" type="submit">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>
+          <span id="goLabel">Check news</span>
+        </button>
+      </div>
+      <div class="under">
+        <button type="button" class="linkish" id="toggleText" aria-expanded="false" aria-controls="textWrap">Add the post text for a sharper result</button>
+        <div class="examples"><span>Try an example:</span>
+          <button type="button" class="chip-btn" data-ex="hoax">Chain message</button>
+          <button type="button" class="chip-btn" data-ex="health">Miracle cure</button>
+          <button type="button" class="chip-btn" data-ex="official">Official account</button>
+        </div>
+      </div>
+      <div id="textWrap" hidden>
+        <label class="sr" for="postText">Post text</label>
+        <textarea class="ta" id="postText" maxlength="4000" placeholder="Paste the caption or message here (optional). Factora cannot read posts that need a login, so the text helps."></textarea>
+      </div>
+      <p class="msg" id="formMsg" role="alert"></p>
+    </form>
+
+    <div class="sr" id="liveStatus" aria-live="polite"></div>
+
+    <section class="idle" id="idle">
+      <div>
+        <h2 class="h-sm">How it works</h2>
+        <ol class="how">
+          <li><b>Paste the link</b><span>Any public post, or a news page that is being shared around.</span></li>
+          <li><b>Watch the scan</b><span>Factora reads the link, finds the claim and weighs it against five kinds of sources.</span></li>
+          <li><b>Read the score</b><span>You get a number out of 100 and the reasons behind it.</span></li>
+        </ol>
+      </div>
+      <div>
+        <h2 class="h-sm">What gets cross-checked</h2>
+        <ul class="cats" id="cats"></ul>
+      </div>
+    </section>
+
+    <section class="scan panel" id="scan" hidden>
+      <div class="scan-grid">
+        <div class="stage"><canvas id="radar" role="img" aria-label="Animated scan of the link against five kinds of sources"></canvas></div>
+        <div>
+          <p class="eyebrow">Scanning</p>
+          <p class="scan-url" id="scanUrl"></p>
+          <ol class="steps" id="steps"></ol>
+          <div class="bar" aria-hidden="true"><i id="barFill"></i></div>
+          <div class="scan-foot">
+            <p class="scan-note" id="scanNote">Factora is reading the post and checking it against sources.</p>
+            <button type="button" class="linkish" id="cancel">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="result" id="result" hidden>
+      <p class="notice" id="notice" hidden></p>
+      <div class="panel verdict">
+        <div class="gauge">
+          <svg viewBox="0 0 200 200" aria-hidden="true"><circle class="g-track" cx="100" cy="100" r="88"/><circle class="g-bar" id="gBar" cx="100" cy="100" r="88" stroke-dasharray="552.9" stroke-dashoffset="552.9"/></svg>
+          <div class="g-num"><b id="gNum">0</b><span>out of 100 real</span></div>
+        </div>
+        <div class="v-text">
+          <div class="badges"><span class="badge v" id="vLabel"></span><span class="badge" id="vConf"></span></div>
+          <h2 id="vHead"></h2>
+          <p id="vSum"></p>
+          <div class="split" aria-hidden="true"><i class="real" id="sReal" style="width:0"></i><i class="fake" id="sFake" style="width:0"></i></div>
+          <div class="legend"><span class="lr" id="lReal"></span><span class="lf" id="lFake"></span></div>
+          <div class="meta" id="vMeta"></div>
+          <button type="button" class="cta" id="addText" hidden>Paste the post text and check again</button>
+        </div>
+      </div>
+      <div class="cols">
+        <div class="panel box">
+          <h3>Source cross-check</h3>
+          <ul class="list" id="sources"></ul>
+        </div>
+        <div class="panel box">
+          <h3>Signals found</h3>
+          <ul class="flags" id="flags"></ul>
+          <h3>Claims spotted</h3>
+          <div id="claims"></div>
+        </div>
+      </div>
+      <div class="panel box">
+        <h3>What to do next</h3>
+        <ul class="next" id="next"></ul>
+      </div>
+      <p class="disclosure">Factora estimates how likely a post is to be real from the link, the post text and the sources it could reach. A score is not a ruling from a fact-checking organization. Treat a low-confidence score as unverified, and confirm anything important with the official sources above.</p>
+      <div class="again"><button type="button" id="again">Check another post</button></div>
+    </section>
+  </main>
+
+  <footer>Factora is a study project. A score is an estimate, not a ruling from a fact-checking organization.</footer>
+</div>
+
+<script>
+'use strict';
+/*PURE-START*/
+var KEYS=['official','government','news','factcheck','research'];
+var OFFICIAL_DOMAINS=['gov.in','nic.in','rbi.org.in','who.int','un.org','europa.eu','gov.uk','nhs.uk'];
+var NEWS_DOMAINS=['reuters.com','apnews.com','bbc.com','bbc.co.uk','ptinews.com','thehindu.com','indianexpress.com','hindustantimes.com','ndtv.com','timesofindia.indiatimes.com','indiatoday.in','theguardian.com','nytimes.com','washingtonpost.com','aljazeera.com','dw.com','livemint.com','business-standard.com','economictimes.indiatimes.com','thewire.in','scroll.in','news18.com','deccanherald.com','telegraphindia.com'];
+var FACT_DOMAINS=['altnews.in','boomlive.in','factcheck.org','snopes.com','factly.in','newschecker.in','vishvasnews.com','fullfact.org','politifact.com','factcheck.afp.com'];
+var SHORTENERS=['bit.ly','tinyurl.com','t.co','goo.gl','ow.ly','is.gd','cutt.ly','rb.gy','shorturl.at','buff.ly','lnkd.in'];
+var BAD_TLDS=['xyz','top','click','buzz','icu','rest','gq','tk','ml','cf','ga','cam','sbs'];
+var SOCIAL=[['x.com','X'],['twitter.com','X'],['facebook.com','Facebook'],['fb.com','Facebook'],['fb.watch','Facebook'],['instagram.com','Instagram'],['youtube.com','YouTube'],['youtu.be','YouTube'],['t.me','Telegram'],['telegram.me','Telegram'],['wa.me','WhatsApp'],['whatsapp.com','WhatsApp'],['reddit.com','Reddit'],['linkedin.com','LinkedIn'],['threads.net','Threads'],['threads.com','Threads'],['tiktok.com','TikTok'],['sharechat.com','ShareChat']];
+var OFFICIAL_HANDLES=['pibfactcheck','pib_india','mib_india','rbi','who','un','mohfw_india','ecisveep','cdcgov','nasa','isro','ddnewslive','airnewsalerts'];
+var BRANDS=['bbc','reuters','cnn','ndtv','aajtak','indiatoday','apnews','thehindu','timesofindia','hindustantimes','pib'];
+var SKIP_PATH=['i','home','explore','share','p','reel','reels','watch','groups','story.php','permalink.php','photo','photos','posts','hashtag','search','intent','status','in','company','feed','pulse','video','videos'];
+
+function inList(h,l){return l.some(function(d){return h===d||h.endsWith('.'+d)})}
+function parseLink(raw){
+  var s=String(raw||'').trim();
+  if(!s||/\s/.test(s)) return null;
+  if(!/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) s='https://'+s;
+  var u; try{u=new URL(s)}catch(e){return null}
+  if(!/^https?:$/.test(u.protocol)) return null;
+  if(!u.hostname.includes('.')||u.hostname.endsWith('.')) return null;
+  return u;
+}
+function accountOf(platform,u){
+  var p=u.pathname.split('/').filter(Boolean), first=p[0]||'';
+  if(platform==='YouTube'){
+    if(first.charAt(0)==='@') return first;
+    if((first==='c'||first==='channel'||first==='user')&&p[1]) return p[1];
+    return null;
+  }
+  if(platform==='Reddit'){ return ((first==='r'||first==='u'||first==='user')&&p[1])?first+'/'+p[1]:null }
+  if(platform==='WhatsApp') return null;
+  if(first&&SKIP_PATH.indexOf(first.toLowerCase())<0) return first.charAt(0)==='@'?first:'@'+first;
+  return null;
+}
+function analyzeLocal(raw,text){
+  var u=parseLink(raw); if(!u) return {ok:false};
+  var host=u.hostname.toLowerCase().replace(/^(www|m|mobile)\./,'');
+  var flags=[], score=50, known=null;
+  function add(type,t,d){flags.push({type:type,text:t});score+=d}
+  var soc=SOCIAL.filter(function(s){return host===s[0]||host.endsWith('.'+s[0])})[0];
+  var platform=soc?soc[1]:null;
+  var account=platform?accountOf(platform,u):null;
+  if(u.protocol==='http:') add('warn','Link uses plain http, not https.',-5);
+  if(/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) add('bad','Link points to a raw IP address, not a named site.',-20);
+  if(inList(host,SHORTENERS)) add('warn','Shortened link. The real destination is hidden.',-6);
+  var tld=host.split('.').pop();
+  if(BAD_TLDS.indexOf(tld)>=0) add('bad','Domain ending (.'+tld+') is common on throwaway sites.',-18);
+  if((host.match(/-/g)||[]).length>=3) add('warn','Domain name is stuffed with hyphens.',-8);
+  if(inList(host,OFFICIAL_DOMAINS)||/\.gov$/.test(host)){ known='official'; add('good','Link goes to an official or government domain.',38); }
+  else if(inList(host,NEWS_DOMAINS)){ known='news'; add('good','Link goes to an established news outlet.',26); }
+  else if(inList(host,FACT_DOMAINS)){ known='factcheck'; add('good','Link goes to a fact-checking organization. Its verdict is on the page.',20); }
+  else if(platform){
+    var h=account?account.replace(/^@/,'').toLowerCase():'';
+    if(h&&OFFICIAL_HANDLES.indexOf(h)>=0){ known='official'; add('good','Account is a known official source ('+account+').',35); }
+    else add('warn','Post is on '+platform+(account?' from '+account:'')+', which Factora cannot confirm as official.',-4);
+  } else {
+    var spoof=BRANDS.filter(function(b){return host.indexOf(b)>=0})[0];
+    if(spoof) add('bad','Site name imitates a trusted outlet ('+spoof+') but is not its real domain.',-22);
+    else if(/(^|[.-])gov([.-]|$)/.test(host)) add('bad','Name says "gov" but the domain is not a government one.',-18);
+    else add('warn','Site is not one Factora recognizes as a trusted source.',-4);
+  }
+  var t=(text||'').trim();
+  if(t.length>=12){
+    if(/(breaking|urgent|shocking|you won'?t believe|they don'?t want you to know|doctors do not want|before (it'?s|it is) deleted|forward (this )?to|share (this )?(now|with everyone)|100% (true|real|proof|confirmed))/i.test(t)) add('bad','Wording pushes urgency or sharing, a common sign of a hoax.',-14);
+    var letters=t.replace(/[^A-Za-z]/g,''), caps=letters.replace(/[^A-Z]/g,'');
+    if((t.match(/!/g)||[]).length>=3||(letters.length>=20&&caps.length/letters.length>0.4)) add('warn','Heavy use of capitals or exclamation marks.',-8);
+    if(/(cures?|cured|curing)\s+(cancer|diabetes|covid|aids|hiv)|miracle cure|instant(ly)? cure/i.test(t)) add('bad','Makes a miracle cure claim.',-14);
+    if(/(free (recharge|gift|laptop|iphone|data)|win (₹|rs\.?|\$)|lottery|claim your (prize|reward))/i.test(t)) add('bad','Offers free prizes or money, a common scam pattern.',-16);
+    if(/(scientists|doctors|experts|officials|sources?)\s+(say|said|confirm(ed)?|reveal(ed)?|claim(ed)?)/i.test(t)&&!/according to [A-Z]/.test(t)) add('warn','Cites "experts" or "sources" without naming them.',-6);
+    if(!known&&/\b(pib|rbi|govt|government|ministry|election commission|supreme court|isro)\b/i.test(t)) add('warn','Names an official body, but the link does not come from it.',-4);
+  }
+  score=Math.max(5,Math.min(95,Math.round(score)));
+  return {ok:true,url:u.href,display:u.href.length>110?u.href.slice(0,107)+'...':u.href,host:host,platform:platform||'Web page',account:account,score:score,flags:flags,known:known,hasText:t.length>=12,conf:known?'high':(t.length>=12?'medium':'low')};
+}
+function toneOf(score){return score>=70?'good':score>=40?'warn':'bad'}
+function labelOf(score){return score>=70?'Likely real':score>=40?'Unclear':'Likely fake'}
+function localResult(l){
+  var checks={};
+  KEYS.forEach(function(k){checks[k]={status:'unverified',note:'Not checked offline. Search this kind of source yourself.'}});
+  if(l.known==='official'){ checks.official={status:'supports',note:'The link is on an official domain or account.'}; if(l.host.indexOf('gov')>=0||/\.gov$/.test(l.host)) checks.government={status:'supports',note:'The link is on a government domain.'}; }
+  if(l.known==='news') checks.news={status:'supports',note:'The link is on an established news outlet.'};
+  if(l.known==='factcheck') checks.factcheck={status:'supports',note:'The link is on a fact-checking site. Read its verdict on the claim.'};
+  var tone=toneOf(l.score);
+  return {score:l.score,conf:l.conf,
+    headline:tone==='good'?'The link comes from a source that is usually reliable.':tone==='warn'?'The link alone is not enough to tell.':'The link and wording show several warning signs.',
+    summary:tone==='good'?'The address matches a known official, news or fact-checking source. Open the page and read it before sharing.':tone==='warn'?'Nothing clearly wrong stands out, but nothing confirms the post either. Add the post text or check the sources below.':'Several signs match hoaxes and scams. Do not share it until an official source confirms it.',
+    platform:l.platform,account:l.account,claims:[],checks:checks,flags:l.flags.slice(),next:[]};
+}
+/*PURE-END*/
+
+(function(){
+var $=function(s,r){return (r||document).querySelector(s)};
+var esc=function(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})};
+var reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+var sleep=function(ms){return new Promise(function(r){setTimeout(r,ms)})};
+
+var ICONS={
+  official:'<svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/><path d="M9 12l2.2 2.2L15.5 10"/></svg>',
+  government:'<svg viewBox="0 0 24 24"><path d="M3 10l9-6 9 6"/><path d="M5 10v8M9.5 10v8M14.5 10v8M19 10v8"/><path d="M3 20h18"/></svg>',
+  news:'<svg viewBox="0 0 24 24"><path d="M5 5h11v14H6a1 1 0 0 1-1-1z"/><path d="M16 9h3v9a1 1 0 0 1-1 1h-2"/><path d="M8 9h5M8 12.5h5M8 16h3"/></svg>',
+  factcheck:'<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/><path d="M8.5 11l1.8 1.8 3.2-3.4"/></svg>',
+  research:'<svg viewBox="0 0 24 24"><path d="M5 4.5h10a3 3 0 0 1 3 3V20H8a3 3 0 0 1-3-3z"/><path d="M5 17a3 3 0 0 1 3-3h10"/></svg>'
+};
+var SOURCES=[
+  {k:'official',name:'Official accounts',short:'Official',eg:'Verified handles of the person or body named'},
+  {k:'government',name:'Government bodies',short:'Govt',eg:'PIB Fact Check, ministries, regulators'},
+  {k:'news',name:'News agencies',short:'News',eg:'PTI, Reuters, AP, BBC'},
+  {k:'factcheck',name:'Fact-checkers',short:'Fact-check',eg:'Alt News, BOOM, Snopes, FactCheck.org'},
+  {k:'research',name:'Articles and research',short:'Research',eg:'Reports, journals, archives'}
+];
+var STEPS=[{t:'Reading the link',s:'Platform, account and post address',n:null},{t:'Pulling out the claim',s:'What the post says is true',n:null}]
+  .concat(SOURCES.map(function(s,i){return {t:s.name,s:s.eg,n:i}}))
+  .concat([{t:'Calculating the score',s:'Weighing every signal',n:null}]);
+
+var EXAMPLES={
+  hoax:{url:'https://www.facebook.com/groups/249871/posts/10231',text:'BREAKING!!! Govt will shut down ALL ATMs for 7 days from tomorrow. Withdraw your money NOW. Forward this to everyone before it is deleted!!!'},
+  health:{url:'https://www.instagram.com/reel/C8xYzExample/',text:'Doctors do not want you to know this. Hot lemon water cures cancer in 3 days. 100% proof. Share now!'},
+  official:{url:'https://x.com/PIBFactCheck',text:''}
+};
+
+/* categories on the idle screen */
+$('#cats').innerHTML=SOURCES.map(function(s){return '<li>'+ICONS[s.k]+'<div><b>'+esc(s.name)+'</b><span>'+esc(s.eg)+'</span></div></li>'}).join('');
+
+/* theme */
+var SKINS=['dark','light','colorful'];
+function stored(){try{return localStorage.getItem('factora-skin')}catch(e){return null}}
+function setSkin(s,save){
+  document.documentElement.setAttribute('data-skin',s);
+  document.querySelectorAll('[data-skin-btn]').forEach(function(b){b.setAttribute('aria-checked',String(b.dataset.skinBtn===s))});
+  if(save){try{localStorage.setItem('factora-skin',s)}catch(e){}}
+  radar.refresh();
+}
+document.querySelectorAll('[data-skin-btn]').forEach(function(b){b.addEventListener('click',function(){setSkin(b.dataset.skinBtn,true)})});
+
+/* radar canvas */
+var radar=(function(){
+  var cv=$('#radar'),ctx=cv.getContext('2d'),TAU=Math.PI*2;
+  var w=0,h=0,raf=0,t0=0,nodes=[0,0,0,0,0],prog=0,C={},ro=null;
+  function colors(){
+    var cs=getComputedStyle(document.documentElement),g=function(n){return cs.getPropertyValue(n).trim()};
+    C={accent:g('--accent'),a2:g('--accent-2'),line:g('--line'),fg:g('--fg'),dim:g('--dim'),good:g('--good'),bg:g('--bg'),solid:g('--solid'),body:g('--body'),display:g('--display')};
+  }
+  function size(){
+    var r=cv.getBoundingClientRect(),dpr=Math.min(2,window.devicePixelRatio||1);
+    if(!r.width||!r.height) return;
+    cv.width=Math.round(r.width*dpr);cv.height=Math.round(r.height*dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);w=r.width;h=r.height;
+  }
+  function draw(now){
+    if(!w) return;
+    var t=(now-t0)/1000,cx=w/2,cy=h/2,R=Math.min(w,h)*0.30,fs=w<340?11:12.5,i,k;
+    ctx.clearRect(0,0,w,h);
+    ctx.lineWidth=1;ctx.strokeStyle=C.line;ctx.globalAlpha=1;
+    [0.34,0.67,1].forEach(function(f){ctx.beginPath();ctx.arc(cx,cy,R*f,0,TAU);ctx.stroke()});
+    ctx.globalAlpha=0.6;ctx.beginPath();ctx.moveTo(cx-R*1.12,cy);ctx.lineTo(cx+R*1.12,cy);ctx.moveTo(cx,cy-R*1.12);ctx.lineTo(cx,cy+R*1.12);ctx.stroke();
+    var ang=reduce?-Math.PI/2:t*1.9;
+    ctx.fillStyle=C.a2;
+    for(i=0;i<36;i++){
+      var a1=ang-i*0.04,f=1-i/36;
+      ctx.globalAlpha=0.34*f*f;ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,R*1.02,a1-0.045,a1);ctx.closePath();ctx.fill();
+    }
+    ctx.globalAlpha=0.9;ctx.strokeStyle=C.a2;ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+Math.cos(ang)*R*1.02,cy+Math.sin(ang)*R*1.02);ctx.stroke();
+    for(i=0;i<5;i++){
+      var a=-Math.PI/2+i*TAU/5+(reduce?0:Math.sin(t*0.6+i*1.7)*0.05);
+      var x=cx+Math.cos(a)*R,y=cy+Math.sin(a)*R,s=nodes[i];
+      if(s>0){
+        ctx.globalAlpha=s===2?0.55:0.85;ctx.strokeStyle=s===2?C.good:C.accent;ctx.lineWidth=1.5;
+        ctx.setLineDash(s===1?[4,5]:[]);ctx.lineDashOffset=-t*30;
+        ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(cx,cy);ctx.stroke();ctx.setLineDash([]);
+      }
+      if(s===1&&!reduce){
+        var p=(t*0.9+i*0.2)%1;
+        ctx.globalAlpha=1;ctx.fillStyle=C.accent;ctx.beginPath();ctx.arc(x+(cx-x)*p,y+(cy-y)*p,3,0,TAU);ctx.fill();
+        var q=(t*0.8+i*0.3)%1;
+        ctx.globalAlpha=(1-q)*0.6;ctx.strokeStyle=C.accent;ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(x,y,9+q*18,0,TAU);ctx.stroke();
+      }
+      ctx.globalAlpha=1;ctx.lineWidth=2;
+      ctx.fillStyle=s===2?C.good:(s===1?C.accent:C.solid);
+      ctx.strokeStyle=s===0?C.dim:(s===2?C.good:C.accent);
+      ctx.beginPath();ctx.arc(x,y,9,0,TAU);ctx.fill();ctx.stroke();
+      if(s===2){ctx.strokeStyle=C.bg;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x-3.5,y);ctx.lineTo(x-1,y+3);ctx.lineTo(x+4,y-3);ctx.stroke()}
+      ctx.fillStyle=s===0?C.dim:C.fg;ctx.font='600 '+fs+'px '+C.body;ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(SOURCES[i].short,cx+Math.cos(a)*(R+30),cy+Math.sin(a)*(R+27));
+    }
+    var pulse=reduce?1:1+Math.sin(t*3)*0.06,cr=R*0.27*pulse;
+    var gr=ctx.createRadialGradient(cx,cy,0,cx,cy,cr*2.3);
+    gr.addColorStop(0,C.accent);gr.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.globalAlpha=0.35;ctx.fillStyle=gr;ctx.beginPath();ctx.arc(cx,cy,cr*2.3,0,TAU);ctx.fill();
+    ctx.globalAlpha=1;ctx.fillStyle=C.solid;ctx.strokeStyle=C.accent;ctx.lineWidth=2;ctx.beginPath();ctx.arc(cx,cy,cr,0,TAU);ctx.fill();ctx.stroke();
+    ctx.strokeStyle=C.a2;ctx.lineWidth=3;ctx.lineCap='round';ctx.beginPath();ctx.arc(cx,cy,cr+7,-Math.PI/2,-Math.PI/2+TAU*prog);ctx.stroke();ctx.lineCap='butt';
+    ctx.fillStyle=C.fg;ctx.font='700 '+(fs+5)+'px '+C.display;ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(Math.round(prog*100)+'%',cx,cy+1);
+    ctx.globalAlpha=1;
+  }
+  function loop(now){draw(now);raf=requestAnimationFrame(loop)}
+  return {
+    start:function(){
+      nodes=[0,0,0,0,0];prog=0;colors();size();t0=performance.now();
+      cancelAnimationFrame(raf);raf=0;
+      if(reduce) draw(t0); else raf=requestAnimationFrame(loop);
+      if(!ro&&window.ResizeObserver){ro=new ResizeObserver(function(){size();if(reduce||!raf) draw(performance.now())});ro.observe(cv)}
+    },
+    stop:function(){cancelAnimationFrame(raf);raf=0},
+    setNode:function(i,s){if(i==null) return;nodes[i]=s;if(reduce) draw(performance.now())},
+    setProgress:function(p){prog=p;if(reduce) draw(performance.now())},
+    refresh:function(){colors();if(!raf&&!$('#scan').hidden) draw(performance.now())}
+  };
+})();
+
+/* elements */
+var form=$('#checkForm'),finder=$('#finder'),urlInput=$('#urlInput'),postText=$('#postText'),go=$('#go'),goLabel=$('#goLabel');
+var msg=$('#formMsg'),idle=$('#idle'),scan=$('#scan'),result=$('#result'),stepsEl=$('#steps'),barFill=$('#barFill');
+var scanNote=$('#scanNote'),live=$('#liveStatus');
+var state={busy:false,cancelled:false,ctl:null,noteTimer:0};
+
+
+initSkin();
+function initSkin(){
+  var s=stored();
+  if(SKINS.indexOf(s)<0) s='colorful';
+  setSkin(s,false);
+}
+
+$('#toggleText').addEventListener('click',function(){
+  var wrap=$('#textWrap'),open=wrap.hidden;
+  wrap.hidden=!open;this.setAttribute('aria-expanded',String(open));
+  this.textContent=open?'Hide the post text box':'Add the post text for a sharper result';
+  if(open) postText.focus();
+});
+document.querySelectorAll('[data-ex]').forEach(function(b){
+  b.addEventListener('click',function(){
+    if(state.busy) return;
+    var ex=EXAMPLES[b.dataset.ex];
+    urlInput.value=ex.url;postText.value=ex.text;
+    if(ex.text&&$('#textWrap').hidden) $('#toggleText').click();
+    form.requestSubmit?form.requestSubmit():start();
+  });
+});
+form.addEventListener('submit',function(e){e.preventDefault();start()});
+$('#cancel').addEventListener('click',function(){state.cancelled=true;if(state.ctl) state.ctl.abort()});
+$('#addText').addEventListener('click',function(){
+  result.hidden=true;idle.hidden=false;
+  if($('#textWrap').hidden) $('#toggleText').click();
+  window.scrollTo({top:0,behavior:reduce?'auto':'smooth'});postText.focus();
+});
+$('#again').addEventListener('click',function(){
+  result.hidden=true;idle.hidden=false;urlInput.value='';postText.value='';
+  window.scrollTo({top:0,behavior:reduce?'auto':'smooth'});urlInput.focus();
+});
+
+function fail(text){
+  msg.textContent=text;msg.classList.remove('shake');void msg.offsetWidth;msg.classList.add('shake');urlInput.focus();
+}
+function buildSteps(){
+  stepsEl.innerHTML=STEPS.map(function(s){return '<li class="step" data-s="idle"><span class="dot"></span><div><b>'+esc(s.t)+'</b><span class="s">'+esc(s.s)+'</span></div></li>'}).join('');
+  barFill.style.width='0';
+}
+function setStep(i,s){
+  var li=stepsEl.children[i];if(!li) return;
+  li.dataset.s=s;
+  if(s==='active') live.textContent=STEPS[i].t;
+}
+function setProgress(p){barFill.style.width=Math.round(p*100)+'%';radar.setProgress(p)}
+
+async function start(){
+  if(state.busy) return;
+  var raw=urlInput.value.trim(),text=postText.value.trim().slice(0,4000);
+  msg.textContent='';
+  if(!raw) return fail('Paste a post link first.');
+  var local=analyzeLocal(raw,text);
+  if(!local.ok) return fail('That does not look like a link. Include the full address, for example https://x.com/name/status/123.');
+  state.busy=true;state.cancelled=false;state.ctl=new AbortController();
+  go.disabled=true;urlInput.disabled=true;finder.classList.add('scanning');goLabel.textContent='Scanning';
+  idle.hidden=true;result.hidden=true;scan.hidden=false;
+  $('#scanUrl').textContent=local.display;
+  scanNote.textContent='Factora is reading the post and checking it against sources.';
+  buildSteps();radar.start();
+  scan.scrollIntoView({behavior:reduce?'auto':'smooth',block:'nearest'});
+  clearTimeout(state.noteTimer);
+  state.noteTimer=setTimeout(function(){scanNote.textContent='Still working. A detailed check can take about a minute.'},16000);
+  var analysis=runAnalysis(local,raw,text,state.ctl.signal);
+  var out=await timeline(analysis);
+  clearTimeout(state.noteTimer);
+  endScan();
+  if(!out||state.cancelled){scan.hidden=true;idle.hidden=false;return}
+  render(out,local);
+}
+function endScan(){
+  state.busy=false;go.disabled=false;urlInput.disabled=false;finder.classList.remove('scanning');goLabel.textContent='Check news';radar.stop();
+}
+async function timeline(analysis){
+  var per=reduce?200:620,last=STEPS.length-1,i;
+  for(i=0;i<last;i++){
+    if(state.cancelled) return null;
+    setStep(i,'active');radar.setNode(STEPS[i].n,1);
+    await sleep(per);
+    setStep(i,'done');radar.setNode(STEPS[i].n,2);setProgress((i+1)/STEPS.length);
+  }
+  if(state.cancelled) return null;
+  setStep(last,'active');
+  var out=await analysis;
+  if(state.cancelled) return null;
+  await sleep(reduce?100:350);
+  setStep(last,'done');setProgress(1);
+  await sleep(reduce?100:500);
+  return out;
+}
+
+async function runAnalysis(local,raw,text,signal){
+  try{
+    var res=await fetch('/api/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:raw,text:text}),signal:signal});
+    var data=await res.json().catch(function(){return null});
+    if(res.ok&&data&&typeof data.score==='number') return {mode:'api',result:data};
+    if(data&&data.error==='invalid_link') return {mode:'local',why:'invalid',result:localResult(local)};
+    return {mode:'local',why:'server',result:localResult(local)};
+  }catch(e){
+    if(e&&e.name==='AbortError') return null;
+    return {mode:'local',why:'offline',result:localResult(local)};
+  }
+}
+
+/* result */
+function countUp(el,to,ms){
+  if(reduce){el.textContent=to;return}
+  var t0=performance.now();
+  (function step(n){var p=Math.min(1,(n-t0)/ms);el.textContent=Math.round(to*(1-Math.pow(1-p,3)));if(p<1) requestAnimationFrame(step)})(t0);
+}
+var WHY={
+  offline:'The Factora server could not be reached, so this score uses link and wording checks that ran in your browser.',
+  server:'The Factora server returned an error, so this score uses link and wording checks that ran in your browser.',
+  invalid:'The server rejected this link, so this score uses link and wording checks that ran in your browser.'
+};
+function defaultNext(tone){
+  var base=['Search the claim on PIB Fact Check, Alt News or BOOM.','Open the account profile and check its age, followers and past posts.'];
+  base.push(tone==='good'?'Read the full page before you share it.':'Do not forward it until an official source confirms it.');
+  return base;
+}
+function render(out,local){
+  var r=out.result,score=r.score,tone=toneOf(score);
+  result.dataset.tone=tone;
+  var notice=$('#notice');
+  var notes=out.mode==='local'?[WHY[out.why]||WHY.server]:(r.notices||[]);
+  notice.hidden=!notes.length;notice.textContent=notes.join(' ');
+  $('#vLabel').textContent=labelOf(score);
+  $('#vConf').textContent=({low:'Low confidence',medium:'Medium confidence',high:'High confidence'})[r.conf];
+  $('#vHead').textContent=r.headline;
+  $('#vSum').textContent=r.summary;
+  $('#vSum').hidden=!r.summary;
+  $('#addText').hidden=local.hasText||!!r.text_found;
+  $('#lReal').textContent='Real '+score+'%';
+  $('#lFake').textContent='Fake '+(100-score)+'%';
+  $('#vMeta').textContent=[r.platform,r.account,r.host||local.host].filter(Boolean).join('  ·  ');
+  $('#sources').innerHTML=SOURCES.map(function(s){
+    var c=r.checks[s.k],lab=c.status==='supports'?'Supports':c.status==='contradicts'?'Contradicts':'Not verified';
+    var note=c.note||(c.status==='unverified'?'No reliable basis to confirm or deny this here.':'');
+    return '<li class="src" data-st="'+c.status+'"><span class="src-ico">'+ICONS[s.k]+'</span><div class="src-body"><div class="src-head"><b>'+esc(s.name)+'</b><span class="pill">'+lab+'</span></div><p class="src-eg">'+esc(s.eg)+'</p><p class="src-note">'+esc(note)+'</p></div></li>';
+  }).join('');
+  var seen={},flags=[];
+  r.flags.concat([]).forEach(function(f){var k=f.text.toLowerCase();if(!seen[k]){seen[k]=1;flags.push(f)}});
+  flags=flags.slice(0,8);
+  $('#flags').innerHTML=flags.length?flags.map(function(f){return '<li data-t="'+f.type+'">'+esc(f.text)+'</li>'}).join(''):'<li data-t="info">No clear warning signs in the link.</li>';
+  var readPost=r.post_text?'<p class="muted" style="margin-bottom:10px">Text read from the post: \u201c'+esc(r.post_text)+'\u201d</p>':'';
+  $('#claims').innerHTML=readPost+(r.claims.length?'<ul class="claims">'+r.claims.map(function(c){return '<li>'+esc(c)+'</li>'}).join('')+'</ul>':'<p class="muted">'+(local.hasText||r.text_found?'No checkable factual claim stood out.':'No post text was found. Paste it above for a sharper result.')+'</p>');
+  var next=r.next.length?r.next:defaultNext(tone);
+  $('#next').innerHTML=next.map(function(n){return '<li>'+esc(n)+'</li>'}).join('');
+  scan.hidden=true;result.hidden=false;
+  var C=2*Math.PI*88,bar=$('#gBar');
+  bar.style.strokeDashoffset=String(C);
+  $('#gNum').textContent='0';$('#sReal').style.width='0';$('#sFake').style.width='0';
+  requestAnimationFrame(function(){requestAnimationFrame(function(){
+    bar.style.strokeDashoffset=String(C*(1-score/100));
+    $('#sReal').style.width=score+'%';$('#sFake').style.width=(100-score)+'%';
+    countUp($('#gNum'),score,1400);
+  })});
+  live.textContent='Score '+score+' out of 100 real. '+labelOf(score)+'.';
+  result.scrollIntoView({behavior:reduce?'auto':'smooth',block:'start'});
+}
+})();
+</script>

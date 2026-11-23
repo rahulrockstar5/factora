@@ -1,0 +1,9 @@
+{
+  "outputDirectory": "public",
+  "functions": {
+    "api/check.py": {
+      "maxDuration": 30,
+      "includeFiles": "{factora,core}/**"
+    }
+  }
+}

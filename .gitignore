@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+.vercel/
+.DS_Store
+# core/libfactora.so is committed on purpose: Vercel loads it at runtime.

@@ -17,7 +17,7 @@
  
 ## ⚙️ How it works
  
-The link is parsed and checked against lists of trusted domains and accounts, and any post text you add is scanned for hoax patterns. When available, Claude analyses the link and text and gives a verdict for each source type. Otherwise the page uses the built-in checks only.
+The link is parsed and checked against lists of trusted domains and accounts, and any post text you add is scanned for hoax patterns. When available, system analyses the link and text and gives a verdict for each source type. Otherwise the page uses the built-in checks only.
  
 ---
  
